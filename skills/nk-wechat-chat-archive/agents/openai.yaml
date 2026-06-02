@@ -1,0 +1,4 @@
+interface:
+  display_name: "微信聊天归档"
+  short_description: "把微信 4.x 聊天记录按月份归档到 Obsidian，并本地化图片。"
+  default_prompt: "请把指定微信聊天记录导出到 Obsidian，按月份生成 Markdown，并尽量解密本地图片。"

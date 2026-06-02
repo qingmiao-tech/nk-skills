@@ -1,0 +1,22 @@
+{
+  "name": "nk-skills",
+  "owner": {
+    "name": "Qingmiao Tech"
+  },
+  "metadata": {
+    "description": "NK skill for archiving WeChat 4.x Windows chat history to Obsidian Markdown",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "nk-skills",
+      "description": "WeChat 4.x chat archive skill for Obsidian Markdown",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/nk-wechat-chat-archive"
+      ]
+    }
+  ]
+}
+

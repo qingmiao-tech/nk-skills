@@ -19,7 +19,19 @@
 
 ## 一句话安装
 
-在 PowerShell 中执行：
+最简单的方式是把下面这句话直接发给你的 Codex、Claude Code 或其他支持 Skills 的 Agent，让它代你安装：
+
+```text
+请帮我安装这个 Skills 仓库：git@github.com:qingmiao-tech/nk-skills.git
+```
+
+如果你的 Agent 不能使用 SSH，也可以发 HTTPS 地址：
+
+```text
+请帮我安装这个 Skills 仓库：https://github.com/qingmiao-tech/nk-skills.git
+```
+
+手动安装时，在 PowerShell 中执行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$tmp=Join-Path $env:TEMP 'nk-skills-install'; Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue; git clone --depth 1 git@github.com:qingmiao-tech/nk-skills.git $tmp; New-Item -ItemType Directory -Force (Join-Path $env:USERPROFILE '.codex\skills') | Out-Null; Copy-Item (Join-Path $tmp 'skills\nk-wechat-chat-archive') (Join-Path $env:USERPROFILE '.codex\skills') -Recurse -Force; Copy-Item (Join-Path $tmp 'skills\nk-wechat-publish-archive') (Join-Path $env:USERPROFILE '.codex\skills') -Recurse -Force"

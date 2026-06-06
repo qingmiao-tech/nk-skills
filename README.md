@@ -26,6 +26,20 @@
 请帮我安装这个 Skills 仓库：https://github.com/qingmiao-tech/nk-skills.git
 ```
 
+如果只想安装单个技能，可以直接把对应话术发给 Agent：
+
+```text
+安装技能 nk-wechat-chat-archive：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-chat-archive
+安装技能 nk-wechat-publish-archive：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-publish-archive
+安装技能 nk-wechat-publish-register：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-publish-register
+```
+
+如果只需要公众号发布工作流，建议同时安装这两个技能：
+
+```text
+请帮我安装公众号发布工作流这两个技能：nk-wechat-publish-archive（https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-publish-archive）和 nk-wechat-publish-register（https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-publish-register）
+```
+
 手动安装全部技能时，在 PowerShell 中执行：
 
 ```powershell

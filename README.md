@@ -1,21 +1,16 @@
 # nk-skills
 
-`nk-skills` 当前发布两个技能：
+`nk-skills` 当前发布三个技能：
 
 - `nk-wechat-chat-archive`
 - `nk-wechat-publish-archive`
+- `nk-wechat-publish-register`
 
 | 技能 | 用途 | 典型输出 |
 |------|------|----------|
 | `nk-wechat-chat-archive` | 微信 4.x Windows 聊天记录归档 | Obsidian Markdown、图片附件、精华归档、每日简报 |
 | `nk-wechat-publish-archive` | 公众号发布前物料归档 | 发布稿、封面图、列表摘要、公众号 HTML、动态相关文章 |
-
-`nk-wechat-chat-archive` 用于把微信 4.x Windows 聊天记录归档到 Obsidian Markdown。它适合这些场景：
-
-- 整理微信群或单聊记录，按月份生成 Markdown。
-- 在已完成微信数据库解密和聊天 JSON 导出后，生成可长期保存的知识库归档。
-- 从本地 `.dat` 附件解密图片，并写入归档目录的 `assets/`。
-- 对完整归档做价值过滤，生成精华归档和每日简报。
+| `nk-wechat-publish-register` | 公众号发布后正式链接登记 | 公众号文章库、发布索引、草稿和发布稿元数据回写 |
 
 ## 一句话安装
 
@@ -31,10 +26,17 @@
 请帮我安装这个 Skills 仓库：https://github.com/qingmiao-tech/nk-skills.git
 ```
 
-手动安装时，在 PowerShell 中执行：
+手动安装全部技能时，在 PowerShell 中执行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$tmp=Join-Path $env:TEMP 'nk-skills-install'; Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue; git clone --depth 1 git@github.com:qingmiao-tech/nk-skills.git $tmp; New-Item -ItemType Directory -Force (Join-Path $env:USERPROFILE '.codex\skills') | Out-Null; Copy-Item (Join-Path $tmp 'skills\nk-wechat-chat-archive') (Join-Path $env:USERPROFILE '.codex\skills') -Recurse -Force; Copy-Item (Join-Path $tmp 'skills\nk-wechat-publish-archive') (Join-Path $env:USERPROFILE '.codex\skills') -Recurse -Force"
+$tmp = Join-Path $env:TEMP "nk-skills-install"
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+git clone --depth 1 git@github.com:qingmiao-tech/nk-skills.git $tmp
+$dest = Join-Path $env:USERPROFILE ".codex\skills"
+New-Item -ItemType Directory -Force $dest | Out-Null
+foreach ($skill in @("nk-wechat-chat-archive", "nk-wechat-publish-archive", "nk-wechat-publish-register")) {
+  Copy-Item (Join-Path $tmp "skills\$skill") $dest -Recurse -Force
+}
 ```
 
 安装后，Codex CLI 会在下面路径读取技能：
@@ -42,15 +44,32 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$tmp=Join-Path $env:TEMP
 ```text
 %USERPROFILE%\.codex\skills\nk-wechat-chat-archive
 %USERPROFILE%\.codex\skills\nk-wechat-publish-archive
+%USERPROFILE%\.codex\skills\nk-wechat-publish-register
 ```
 
-只安装公众号发布归档技能时，可以执行：
+如果目标 Agent 使用 `.agents\skills`，把上面命令里的 `.codex\skills` 改成 `.agents\skills` 即可。
+
+只安装公众号发布工作流时，可以只复制这两个技能：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$tmp=Join-Path $env:TEMP 'nk-skills-install'; Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue; git clone --depth 1 git@github.com:qingmiao-tech/nk-skills.git $tmp; New-Item -ItemType Directory -Force (Join-Path $env:USERPROFILE '.codex\skills') | Out-Null; Copy-Item (Join-Path $tmp 'skills\nk-wechat-publish-archive') (Join-Path $env:USERPROFILE '.codex\skills') -Recurse -Force"
+$tmp = Join-Path $env:TEMP "nk-skills-install"
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+git clone --depth 1 git@github.com:qingmiao-tech/nk-skills.git $tmp
+$dest = Join-Path $env:USERPROFILE ".codex\skills"
+New-Item -ItemType Directory -Force $dest | Out-Null
+foreach ($skill in @("nk-wechat-publish-archive", "nk-wechat-publish-register")) {
+  Copy-Item (Join-Path $tmp "skills\$skill") $dest -Recurse -Force
+}
 ```
 
-## nk-wechat-chat-archive 技能边界
+## nk-wechat-chat-archive
+
+`nk-wechat-chat-archive` 用于把微信 4.x Windows 聊天记录归档到 Obsidian Markdown。它适合这些场景：
+
+- 整理微信群或单聊记录，按月份生成 Markdown。
+- 在已完成微信数据库解密和聊天 JSON 导出后，生成可长期保存的知识库归档。
+- 从本地 `.dat` 附件解密图片，并写入归档目录的 `assets/`。
+- 对完整归档做价值过滤，生成精华归档和每日简报。
 
 这个技能不负责破解或上传数据。推荐工作方式是：
 
@@ -60,7 +79,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$tmp=Join-Path $env:TEMP
 
 不要把聊天内容、数据库、key 或图片上传到外部服务。不要把真实 key 写进长期文档或技能文件。
 
-## 最小使用示例
+最小使用示例：
 
 ```powershell
 python ".codex/skills/nk-wechat-chat-archive/scripts/archive_wechat_v4_chat.py" `
@@ -83,18 +102,23 @@ python ".codex/skills/nk-wechat-chat-archive/scripts/filter_wechat_archive.py" `
 
 更多参数和验收命令见 [`skills/nk-wechat-chat-archive/SKILL.md`](./skills/nk-wechat-chat-archive/SKILL.md)。
 
-## nk-wechat-publish-archive
+## 公众号发布工作流
 
-这个技能用于公众号发布前物料归档：把 Obsidian 草稿复制到发布目录，生成封面、列表摘要、微信公众号 HTML 和动态 `相关文章`。
+公众号发布工作流分两步：
 
-适合这些场景：
+1. `nk-wechat-publish-archive`：发布前生成物料，把 Obsidian 草稿复制到发布目录，生成封面、列表摘要、微信公众号 HTML 和动态 `相关文章`。
+2. `nk-wechat-publish-register`：手动在公众号后台发布后，同步正式文章信息，回写正式链接、发布时间、摘要和封面等信息。
 
-- 文章草稿已经写好，需要生成公众号发布前物料。
-- 希望把草稿复制到对应年份的 `发布` 目录，保留原草稿不移动。
-- 希望自动生成封面、列表摘要、蓝莹主题公众号 HTML 和预览 HTML。
-- 希望发布稿文末自动带上动态 `相关文章`，但不插入二维码或私域引导。
+两个技能目录都已经内置所需脚本，方便单独分享安装：
 
-## nk-wechat-publish-archive 目录约定
+```text
+skills/nk-wechat-publish-archive/scripts/
+skills/nk-wechat-publish-register/scripts/
+```
+
+内置脚本包括发布归档入口、发布包生成、封面生成、后台文章同步、配置加载和示例配置。已有本地 `00.系统配置/wechat-cover-summary-tool/` 的用户可以继续使用原目录；新安装分享版时不需要额外复制这套工具目录。
+
+## 发布目录约定
 
 默认按 Obsidian 知识库中的年份目录组织文章：
 
@@ -104,41 +128,20 @@ python ".codex/skills/nk-wechat-chat-archive/scripts/filter_wechat_archive.py" `
 | `07.发布文案/<year>年/发布/` | 发布稿和生成物料 |
 | `07.发布文案/<year>年/发布/发布索引.md` | 当年发布索引 |
 | `08.数据反馈/公众号文章库/AI南柯-文章列表.json` | 已发布文章库，用于相关文章 |
-| `00.系统配置/wechat-cover-summary-tool/` | 本地公众号封面、摘要、HTML 工具脚本 |
 
-完整发布归档入口通常是本地知识库里的：
-
-```text
-00.系统配置/wechat-cover-summary-tool/archive_wechat_article_to_publish.py
-```
-
-本仓库同步了本次规则更新涉及的发布包生成脚本：
+首次安装到新的知识库时，建议在 vault 根目录创建 `.wechat-publish.json`。可从任一发布技能目录复制示例：
 
 ```text
-00.系统配置/wechat-cover-summary-tool/build_wechat_publish_package.py
+skills/nk-wechat-publish-archive/scripts/wechat-publish.example.json
 ```
 
-## nk-wechat-publish-archive 配置示例
+如果当前命令不是在 vault 根目录执行，可以先设置：
 
-如果知识库不在当前工作目录，可以在项目或用户配置中创建：
-
-```text
-.nk-skills/nk-wechat-publish-archive/EXTEND.md
+```powershell
+$env:WECHAT_PUBLISH_ROOT = "D:/path/to/YourVault"
 ```
 
-示例：
-
-```yaml
----
-vault_root: D:/ObsidianVaults/MyVault
-archive_script: 00.系统配置/wechat-cover-summary-tool/archive_wechat_article_to_publish.py
-draft_root: 07.发布文案
-article_library: 08.数据反馈/公众号文章库/AI南柯-文章列表.json
-theme: blue
----
-```
-
-## nk-wechat-publish-archive 最小使用示例
+## 发布前归档
 
 在 Codex 中可以直接说：
 
@@ -146,11 +149,11 @@ theme: blue
 $nk-wechat-publish-archive 07.发布文案/2026年/草稿/某篇文章.md
 ```
 
-也可以直接运行本地归档脚本：
+也可以直接运行技能内置脚本：
 
 ```powershell
-python "D:/ObsidianVaults/MyVault/00.系统配置/wechat-cover-summary-tool/archive_wechat_article_to_publish.py" `
-  --article "D:/ObsidianVaults/MyVault/07.发布文案/2026年/草稿/某篇文章.md" `
+python ".codex/skills/nk-wechat-publish-archive/scripts/archive_wechat_article_to_publish.py" `
+  --article "D:/path/to/YourVault/07.发布文案/2026年/草稿/某篇文章.md" `
   --summary "这里放公众号列表摘要" `
   --cover-title "这里放封面主标题" `
   --cover-subtitle "这里放封面副标题" `
@@ -175,29 +178,19 @@ python "D:/ObsidianVaults/MyVault/00.系统配置/wechat-cover-summary-tool/arch
 $nk-wechat-publish-register 这篇
 ```
 
-用于登记正式链接和后台文章信息。
+## 发布后登记
 
-## nk-wechat-publish-archive 相关文章规则
+`nk-wechat-publish-register` 会从公众号后台同步已发布文章，并把正式链接写回文章库、草稿、发布稿和发布索引。
 
-本次同步的相关文章规则：
+也可以直接运行技能内置脚本：
 
-- 文末 `相关文章` 最多展示 5 条。
-- 只展示已有正式公众号链接的文章，不展示发布链接仍为 `待补充` 的文章。
-- 当前文章自身会被排除。
-- 相关文章按主题关键词重合、近期程度、同系列工作流关联度综合排序。
-
-重点主题词会额外加权，包括：
-
-```text
-obsidian、知识库、长期记忆、记忆系统、本地、归档、复盘、工作流、skill、脚本、agent、智能体、hermes、飞书、公众号、发布
+```powershell
+python ".codex/skills/nk-wechat-publish-register/scripts/sync_wechat_published_articles.py" `
+  --output-json "08.数据反馈/公众号文章库/AI南柯-文章列表.json" `
+  --output-md "08.数据反馈/公众号文章库/AI南柯-文章列表.md"
 ```
 
-近期文章会额外加权：
+更多参数和验收命令见：
 
-- 7 天内：+30
-- 14 天内：+24
-- 30 天内：+16
-- 90 天内：+3
-
-更多参数和验收命令见 [`skills/nk-wechat-publish-archive/SKILL.md`](./skills/nk-wechat-publish-archive/SKILL.md)。
-
+- [`skills/nk-wechat-publish-archive/SKILL.md`](./skills/nk-wechat-publish-archive/SKILL.md)
+- [`skills/nk-wechat-publish-register/SKILL.md`](./skills/nk-wechat-publish-register/SKILL.md)

@@ -4,18 +4,19 @@
     "name": "Qingmiao Tech"
   },
   "metadata": {
-    "description": "NK skills for WeChat chat archiving and Official Account publish archiving",
-    "version": "0.2.0"
+    "description": "NK skills for WeChat chat archiving and Official Account publish workflows",
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "nk-skills",
-      "description": "WeChat archive and Official Account publish archive skills",
+      "description": "WeChat archive and Official Account publish workflow skills",
       "source": "./",
       "strict": false,
       "skills": [
         "./skills/nk-wechat-chat-archive",
-        "./skills/nk-wechat-publish-archive"
+        "./skills/nk-wechat-publish-archive",
+        "./skills/nk-wechat-publish-register"
       ]
     }
   ]

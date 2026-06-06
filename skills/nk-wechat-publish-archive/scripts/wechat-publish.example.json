@@ -1,0 +1,11 @@
+{
+  "publish_doc_root": "07.发布文案",
+  "article_library_json": "08.数据反馈/公众号文章库/我的公众号-文章列表.json",
+  "article_library_md": "08.数据反馈/公众号文章库/我的公众号-文章列表.md",
+  "header_template": "",
+  "footer_template": "",
+  "publish_index_filename": "发布索引.md",
+  "related_articles_limit": 5,
+  "wechat_session_file": "skills/wechat-draft-publisher/scripts/session.json",
+  "opencli_daemon_url": "http://127.0.0.1:19825"
+}

@@ -1,13 +1,15 @@
 # nk-skills
 
-`nk-skills` 当前发布三个技能：
+`nk-skills` 当前发布四个技能：
 
+- `nk-session-distiller`
 - `nk-wechat-chat-archive`
 - `nk-wechat-publish-archive`
 - `nk-wechat-publish-register`
 
 | 技能 | 用途 | 典型输出 |
 |------|------|----------|
+| `nk-session-distiller` | 长会话沉淀与 handoff | Obsidian 复盘、项目 handoff、会话证据包 |
 | `nk-wechat-chat-archive` | 微信 4.x Windows 聊天记录归档 | Obsidian Markdown、图片附件、精华归档、每日简报 |
 | `nk-wechat-publish-archive` | 公众号发布前物料归档 | 发布稿、封面图、列表摘要、公众号 HTML、动态相关文章 |
 | `nk-wechat-publish-register` | 公众号发布后正式链接登记 | 公众号文章库、发布索引、草稿和发布稿元数据回写 |
@@ -29,6 +31,7 @@
 如果只想安装单个技能，可以直接把对应话术发给 Agent：
 
 ```text
+安装技能 nk-session-distiller：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-session-distiller
 安装技能 nk-wechat-chat-archive：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-chat-archive
 安装技能 nk-wechat-publish-archive：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-publish-archive
 安装技能 nk-wechat-publish-register：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-publish-register
@@ -48,7 +51,7 @@ Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 git clone --depth 1 git@github.com:qingmiao-tech/nk-skills.git $tmp
 $dest = Join-Path $env:USERPROFILE ".codex\skills"
 New-Item -ItemType Directory -Force $dest | Out-Null
-foreach ($skill in @("nk-wechat-chat-archive", "nk-wechat-publish-archive", "nk-wechat-publish-register")) {
+foreach ($skill in @("nk-session-distiller", "nk-wechat-chat-archive", "nk-wechat-publish-archive", "nk-wechat-publish-register")) {
   Copy-Item (Join-Path $tmp "skills\$skill") $dest -Recurse -Force
 }
 ```
@@ -56,6 +59,7 @@ foreach ($skill in @("nk-wechat-chat-archive", "nk-wechat-publish-archive", "nk-
 安装后，Codex CLI 会在下面路径读取技能：
 
 ```text
+%USERPROFILE%\.codex\skills\nk-session-distiller
 %USERPROFILE%\.codex\skills\nk-wechat-chat-archive
 %USERPROFILE%\.codex\skills\nk-wechat-publish-archive
 %USERPROFILE%\.codex\skills\nk-wechat-publish-register
@@ -75,6 +79,32 @@ foreach ($skill in @("nk-wechat-publish-archive", "nk-wechat-publish-register"))
   Copy-Item (Join-Path $tmp "skills\$skill") $dest -Recurse -Force
 }
 ```
+
+## nk-session-distiller（会话沉淀助手）
+
+`nk-session-distiller` 用于判断 Codex、Claude Code、Hermes 或飞书里的长期会话是否值得沉淀，并整理成可复用文档。它适合这些场景：
+
+- 会话太长，需要跨会话继续。
+- 想把当前聊天整理成 Obsidian 复盘或项目 handoff。
+- 需要从 Codex JSONL、Claude Code 记录、Hermes/飞书文本里提取关键事实、命令和风险线索。
+- 想先判断一段会话值不值得沉淀，再决定写正式知识库文档、轻量 handoff 或跳过。
+
+处理 Codex JSONL 时，可以先生成会话证据包：
+
+```powershell
+python ".codex/skills/nk-session-distiller/scripts/extract_codex_session.py" `
+  --input "C:/Users/Administrator/.codex/sessions/YYYY/MM/DD/rollout-xxx.jsonl" `
+  --output "10.Hermes协同/会话记录/_tmp/session-digest.md"
+```
+
+常见输出目录包括：
+
+- `09.经验沉淀/AI工作流复盘/`
+- `09.经验沉淀/项目案例库/`
+- `10.Hermes协同/会话记录/YYYY/`
+- 项目内的 `docs/ai-handoff/`
+
+更多评分规则、拆分规则和模板见 [`skills/nk-session-distiller/SKILL.md`](./skills/nk-session-distiller/SKILL.md)。
 
 ## nk-wechat-chat-archive
 

@@ -10,7 +10,7 @@
 | 技能 | 用途 | 典型输出 |
 |------|------|----------|
 | `nk-session-distiller` | 长会话沉淀与 handoff | Obsidian 复盘、项目 handoff、会话证据包 |
-| `nk-wechat-chat-archive` | 微信 4.x Windows 聊天记录归档 | Obsidian Markdown、图片附件、精华归档、每日简报 |
+| `nk-wechat-chat-archive` | 微信 4.x Windows 聊天记录归档 | 本机工具准备、月度 Markdown、图片、增量续档、每日简报 |
 | `nk-wechat-publish-archive` | 公众号发布前物料归档 | 发布稿、封面图、列表摘要、公众号 HTML、动态相关文章 |
 | `nk-wechat-publish-register` | 公众号发布后正式链接登记 | 公众号文章库、发布索引、草稿和发布稿元数据回写 |
 
@@ -35,6 +35,12 @@
 安装技能 nk-wechat-chat-archive：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-chat-archive
 安装技能 nk-wechat-publish-archive：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-publish-archive
 安装技能 nk-wechat-publish-register：https://github.com/qingmiao-tech/nk-skills/tree/main/skills/nk-wechat-publish-register
+```
+
+安装后，可以把下面这句话直接发给 Agent：
+
+```text
+请读取 nk-wechat-chat-archive，把我 Windows 微信 4.x 中指定聊天从上次截止点归档到指定日期，按月份保存为本地 Markdown，包含可用图片，并生成价值过滤和每日简报。所有聊天数据和密钥只在本机处理。
 ```
 
 如果只需要公众号发布工作流，建议同时安装这两个技能：
@@ -111,40 +117,62 @@ python ".codex/skills/nk-session-distiller/scripts/extract_codex_session.py" `
 `nk-wechat-chat-archive` 用于把微信 4.x Windows 聊天记录归档到 Obsidian Markdown。它适合这些场景：
 
 - 整理微信群或单聊记录，按月份生成 Markdown。
-- 在已完成微信数据库解密和聊天 JSON 导出后，生成可长期保存的知识库归档。
+- 从本机已登录微信开始，准备固定版本工具、私有数据库缓存和聊天 JSON。
+- 从上次精确截止时间继续归档，并验证旧月份没有被意外改写。
 - 从本地 `.dat` 附件解密图片，并写入归档目录的 `assets/`。
-- 对完整归档做价值过滤，生成精华归档和每日简报。
+- 对完整归档做价值过滤，按群类型或自定义关键词生成精华归档和每日简报。
 
-这个技能不负责破解或上传数据。推荐工作方式是：
+这个技能只处理用户有权访问的本机数据，不上传聊天正文、数据库、密钥或图片。当前完整工具链只支持 Windows 微信 4.x；微信 3.x、macOS、移动端备份、企业微信和云端直接获取不在已验证范围内。
 
-1. 用成熟工具 `wechat-decrypt` 解密微信 4.x 数据库。
-2. 用 `wechat-decrypt/export_chat.py` 或等价脚本导出目标聊天 JSON。
-3. 用本技能脚本把聊天 JSON、已解密数据库、本地附件目录转成 Obsidian Markdown。
+首次使用可以让脚本准备固定版本的外部工具和隔离 Python 环境：
 
-不要把聊天内容、数据库、key 或图片上传到外部服务。不要把真实 key 写进长期文档或技能文件。
+```powershell
+python ".codex/skills/nk-wechat-chat-archive/scripts/bootstrap_wechat_archive_tools.py" `
+  --tools-dir ".tmp/wechat-chat-archive/tools" `
+  --install-deps
+```
 
-最小使用示例：
+技能支持三种入口：
+
+1. 只有聊天 JSON：使用 `--skip-images` 生成纯文本归档。
+2. 已有本技能导出的聊天 JSON、图片密钥配置和附件：直接生成包含图片的月度归档。
+3. 只有本机已登录微信：依次完成工具准备、聊天导出、归档和验收。
+
+从当前登录账号导出聊天：
+
+```powershell
+& ".tmp/wechat-chat-archive/tools/.venv/Scripts/python.exe" `
+  ".codex/skills/nk-wechat-chat-archive/scripts/export_wechat_chat.py" `
+  --wechatauto-repo ".tmp/wechat-chat-archive/tools/wechatauto-replica" `
+  --db-root "E:/path/to/xwechat_files" `
+  --workdir ".tmp/wechat-chat-archive/private-cache" `
+  --chat "<群名或联系人>" `
+  --output ".tmp/wechat-chat-archive/target-chat.json" `
+  --image-config ".tmp/wechat-chat-archive/private-cache/image-config.json" `
+  --through "2026-08-31"
+```
+
+完整图片归档：
 
 ```powershell
 python ".codex/skills/nk-wechat-chat-archive/scripts/archive_wechat_v4_chat.py" `
-  --chat-json ".tmp/wechat-export/target-chat.json" `
-  --decrypted-dir ".tmp/wechat-export/decrypted" `
+  --chat-json ".tmp/wechat-chat-archive/target-chat.json" `
   --wechat-base "E:/path/to/xwechat_files/<wxid>_<suffix>" `
-  --wechat-decrypt-tool ".tmp/wechat-export/tools/wechat-decrypt" `
-  --wechat-decrypt-config ".tmp/wechat-export/tools/wechat-decrypt/config.json" `
-  --output "10.Hermes协同/微信聊天归档/<聊天名>"
+  --wechatauto-repo ".tmp/wechat-chat-archive/tools/wechatauto-replica" `
+  --image-config ".tmp/wechat-chat-archive/private-cache/image-config.json" `
+  --output "path/to/local-knowledge-base/wechat/<聊天名>"
 ```
 
 归档完成后，可以继续生成精华归档和每日简报：
 
 ```powershell
 python ".codex/skills/nk-wechat-chat-archive/scripts/filter_wechat_archive.py" `
-  --archive-dir "10.Hermes协同/微信聊天归档/<聊天名>" `
+  --archive-dir "path/to/local-knowledge-base/wechat/<聊天名>" `
   --profile learning `
   --daily-digest
 ```
 
-更多参数和验收命令见 [`skills/nk-wechat-chat-archive/SKILL.md`](./skills/nk-wechat-chat-archive/SKILL.md)。
+完整的本机导出、日期截断、增量合并、历史哈希保护和验收命令见 [`skills/nk-wechat-chat-archive/SKILL.md`](./skills/nk-wechat-chat-archive/SKILL.md)。首次配置和故障定位见 [`references/toolchain.md`](./skills/nk-wechat-chat-archive/references/toolchain.md)，增量续档见 [`references/incremental-workflow.md`](./skills/nk-wechat-chat-archive/references/incremental-workflow.md)。
 
 ## 公众号发布工作流
 

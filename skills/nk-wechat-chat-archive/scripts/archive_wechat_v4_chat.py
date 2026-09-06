@@ -3,11 +3,11 @@ import collections
 import datetime as dt
 import glob
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import sqlite3
-import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -19,15 +19,29 @@ def parse_args():
         description="Archive an exported WeChat 4.x chat JSON into monthly Obsidian Markdown files."
     )
     parser.add_argument("--chat-json", required=True, help="Path to export_chat.py JSON output.")
-    parser.add_argument("--decrypted-dir", required=True, help="Root directory of decrypted WeChat databases.")
-    parser.add_argument("--wechat-base", required=True, help="xwechat_files account directory, e.g. .../<wxid>_<suffix>.")
-    parser.add_argument("--wechat-decrypt-tool", required=True, help="Directory containing decode_image.py.")
+    parser.add_argument(
+        "--decrypted-dir",
+        help="Optional legacy decrypted DB root used when old chat JSON lacks image_md5.",
+    )
+    parser.add_argument(
+        "--wechat-base",
+        help="xwechat_files account directory. Required when decoding images.",
+    )
+    parser.add_argument(
+        "--wechatauto-repo",
+        help="Checkout containing wechatauto/media.py. Required when decoding images.",
+    )
     parser.add_argument("--output", required=True, help="Output directory for Markdown archive.")
     parser.add_argument("--chat-name", help="Display name override. Defaults to chat JSON 'chat'.")
     parser.add_argument("--chat-username", help="Username override. Defaults to chat JSON 'username'.")
-    parser.add_argument("--wechat-decrypt-config", help="wechat-decrypt config.json with image_aes_key/image_xor_key.")
+    parser.add_argument("--image-config", help="Private JSON with image_aes_key/image_xor_key.")
     parser.add_argument("--image-aes-key", help="Temporary image AES key override. Do not persist in docs.")
     parser.add_argument("--image-xor-key", help="Temporary image XOR key override, decimal or 0x hex.")
+    parser.add_argument(
+        "--skip-images",
+        action="store_true",
+        help="Create Markdown with image placeholders without reading local databases or attachments.",
+    )
     return parser.parse_args()
 
 
@@ -39,8 +53,8 @@ def load_image_keys(args):
     aes_key = args.image_aes_key
     xor_key = args.image_xor_key
 
-    if args.wechat_decrypt_config:
-        cfg_path = Path(args.wechat_decrypt_config)
+    if args.image_config:
+        cfg_path = Path(args.image_config)
         if cfg_path.exists():
             cfg = read_json(cfg_path)
             aes_key = aes_key or cfg.get("image_aes_key")
@@ -70,6 +84,13 @@ def time_of(timestamp: int) -> str:
     return dt.datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def message_key(message: dict) -> tuple:
+    source_db = message.get("source_db")
+    if source_db:
+        return "db", Path(source_db).name, message["local_id"]
+    return "legacy", message["local_id"], message["timestamp"]
+
+
 def load_raw_message_info(decrypted_dir: Path, chat_username: str):
     table = "Msg_" + hashlib.md5(chat_username.encode("utf-8")).hexdigest()
     dbs = sorted((decrypted_dir / "message").glob("message_*.db"))
@@ -92,6 +113,7 @@ def load_raw_message_info(decrypted_dir: Path, chat_username: str):
             (table,),
         ).fetchone()
         if not exists:
+            cur.close()
             con.close()
             continue
         query = f"""
@@ -112,13 +134,24 @@ def load_raw_message_info(decrypted_dir: Path, chat_username: str):
                     content = ""
                 elif isinstance(content, bytes):
                     content = content.decode("utf-8", errors="replace")
-                info[row["local_id"]] = {
+                raw = {
                     "local_type": row["local_type"],
                     "create_time": row["create_time"],
                     "content": content or "",
                     "packed_info_data": row["packed_info_data"] or b"",
                 }
+                db_key = ("db", db.name, row["local_id"])
+                if db_key in info:
+                    raise RuntimeError(f"duplicate message key in {db.name}: {row['local_id']}")
+                info[db_key] = raw
+
+                legacy_key = ("legacy", row["local_id"], row["create_time"])
+                if legacy_key in info:
+                    info[legacy_key] = None
+                else:
+                    info[legacy_key] = raw
         finally:
+            cur.close()
             con.close()
 
     if not info:
@@ -127,6 +160,10 @@ def load_raw_message_info(decrypted_dir: Path, chat_username: str):
 
 
 def extract_image_md5(raw: dict) -> str:
+    explicit = raw.get("image_md5") or raw.get("md5")
+    if explicit and re.fullmatch(r"[0-9a-fA-F]{32}", str(explicit)):
+        return str(explicit).lower()
+
     packed = raw.get("packed_info_data") or b""
     if packed:
         text = packed.decode("utf-8", errors="ignore")
@@ -180,14 +217,31 @@ def dat_candidates(attach_dir: Path, image_md5: str, message_month: str):
     return unique
 
 
-def import_decode_image(tool_dir: Path):
-    sys.path.insert(0, str(tool_dir))
-    import decode_image  # noqa: PLC0415
+def load_media_downloader(repo: Path):
+    module_path = repo / "wechatauto" / "media.py"
+    spec = importlib.util.spec_from_file_location("wechat_archive_media", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load media module: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.MediaDownloader(None)
 
-    return decode_image
+
+def image_extension(data: bytes) -> str:
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if data[:4] == b"\x89PNG":
+        return "png"
+    if data[:4] in {b"GIF8"}:
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if data[:2] == b"BM":
+        return "bmp"
+    return ""
 
 
-def decode_image_asset(decode_image, out_dir: Path, assets_dir: Path, attach_dir: Path,
+def decode_image_asset(media, out_dir: Path, assets_dir: Path, attach_dir: Path,
                        image_md5: str, message_month: str, aes_key: str, xor_key: int,
                        diagnostics: collections.Counter) -> str:
     if not image_md5:
@@ -207,21 +261,21 @@ def decode_image_asset(decode_image, out_dir: Path, assets_dir: Path, attach_dir
 
     for dat_path in candidates:
         asset_month_dir.mkdir(parents=True, exist_ok=True)
-        tmp_path = asset_month_dir / f"{image_md5}.unknown.tmp"
+        tmp_path = asset_month_dir / f"{image_md5}.tmp"
         try:
-            result_path, fmt = decode_image.decrypt_dat_file(
-                str(dat_path),
-                out_path=str(tmp_path),
-                aes_key=aes_key,
-                xor_key=xor_key,
-            )
-            if not result_path or not fmt:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-                diagnostics["decrypt_empty_result"] += 1
+            data = media.decrypt_image(str(dat_path), aes_key=aes_key, xor_key=xor_key)
+            if data[:4] == b"wxgf":
+                data = media._wxgf_to_jpg(data)
+                if not data:
+                    diagnostics["wxgf_conversion_unavailable"] += 1
+                    continue
+            extension = image_extension(data)
+            if not extension:
+                diagnostics["unknown_image_format"] += 1
                 continue
-            final_path = asset_month_dir / f"{image_md5}.{fmt}"
-            os.replace(result_path, final_path)
+            tmp_path.write_bytes(data)
+            final_path = asset_month_dir / f"{image_md5}.{extension}"
+            os.replace(tmp_path, final_path)
             return final_path.relative_to(out_dir).as_posix()
         except ModuleNotFoundError as exc:
             diagnostics[f"missing_module:{exc.name}"] += 1
@@ -245,10 +299,11 @@ def render_message(message: dict, raw_info: dict, image_map: dict) -> str:
     line_head = f"- **{ts}** `{sender}`"
 
     if msg_type == "image":
-        rel = image_map.get(message["local_id"])
+        key = message_key(message)
+        rel = image_map.get(key)
         if rel:
             return f"{line_head}\n  ![]({rel})"
-        image_md5 = extract_image_md5(raw_info.get(message["local_id"], {}))
+        image_md5 = extract_image_md5(raw_info.get(key) or {})
         suffix = f" {image_md5}" if image_md5 else ""
         return f"{line_head} [图片未能解密{suffix}]"
 
@@ -281,7 +336,11 @@ def write_month_file(out_dir: Path, chat_name: str, chat_username: str, month: s
     first_time = time_of(messages[0]["timestamp"])
     last_time = time_of(messages[-1]["timestamp"])
     image_count = type_counter.get("image", 0)
-    decoded_count = sum(1 for m in messages if m.get("type") == "image" and image_map.get(m["local_id"]))
+    decoded_count = sum(
+        1
+        for m in messages
+        if m.get("type") == "image" and image_map.get(message_key(m))
+    )
     lines = [
         f"# {chat_name} - {month}",
         "",
@@ -303,47 +362,84 @@ def write_month_file(out_dir: Path, chat_name: str, chat_username: str, month: s
 def main():
     args = parse_args()
     chat_json = Path(args.chat_json)
-    decrypted_dir = Path(args.decrypted_dir)
-    wechat_base = Path(args.wechat_base)
-    tool_dir = Path(args.wechat_decrypt_tool)
     out_dir = Path(args.output)
     assets_dir = out_dir / "assets"
 
     data = read_json(chat_json)
     chat_name = args.chat_name or data["chat"]
     chat_username = args.chat_username or data["username"]
-    chat_hash = hashlib.md5(chat_username.encode("utf-8")).hexdigest()
-    attach_dir = wechat_base / "msg" / "attach" / chat_hash
-    aes_key, xor_key = load_image_keys(args)
 
-    messages = sorted(data["messages"], key=lambda item: (item["timestamp"], item.get("local_id", 0)))
-    raw_info = load_raw_message_info(decrypted_dir, chat_username)
-    decode_image = import_decode_image(tool_dir)
+    messages = sorted(
+        data["messages"],
+        key=lambda item: (
+            item["timestamp"],
+            Path(item.get("source_db", "")).name,
+            item.get("local_id", 0),
+        ),
+    )
+    identities = [message_key(message) for message in messages]
+    if len(identities) != len(set(identities)):
+        raise ValueError("chat JSON contains duplicate message identities")
+
+    image_messages = [message for message in messages if message.get("type") == "image"]
+    decode_images = bool(image_messages) and not args.skip_images
+    raw_info = {}
+    media = None
+    attach_dir = None
+    aes_key = None
+    xor_key = None
+    if decode_images:
+        required = {
+            "--wechat-base": args.wechat_base,
+            "--wechatauto-repo": args.wechatauto_repo,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(
+                "image decoding requires: " + ", ".join(missing) + "; or pass --skip-images"
+            )
+        wechat_base = Path(args.wechat_base)
+        wechatauto_repo = Path(args.wechatauto_repo)
+        chat_hash = hashlib.md5(chat_username.encode("utf-8")).hexdigest()
+        attach_dir = wechat_base / "msg" / "attach" / chat_hash
+        aes_key, xor_key = load_image_keys(args)
+        if args.decrypted_dir:
+            raw_info = load_raw_message_info(Path(args.decrypted_dir), chat_username)
+        for message in image_messages:
+            image_md5 = message.get("image_md5") or message.get("md5")
+            if image_md5:
+                raw_info.setdefault(message_key(message), {})["image_md5"] = image_md5
+        media = load_media_downloader(wechatauto_repo)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    assets_dir.mkdir(parents=True, exist_ok=True)
+    if decode_images:
+        assets_dir.mkdir(parents=True, exist_ok=True)
 
     image_map = {}
     image_diagnostics = collections.Counter()
-    image_messages = [m for m in messages if m.get("type") == "image"]
-    for index, message in enumerate(image_messages, start=1):
-        raw = raw_info.get(message["local_id"], {})
-        image_md5 = extract_image_md5(raw)
-        rel = decode_image_asset(
-            decode_image,
-            out_dir,
-            assets_dir,
-            attach_dir,
-            image_md5,
-            month_of(message["timestamp"]),
-            aes_key,
-            xor_key,
-            image_diagnostics,
-        )
-        if rel:
-            image_map[message["local_id"]] = rel
-        if index % 100 == 0:
-            print(f"decoded images: {index}/{len(image_messages)} usable={len(image_map)}", flush=True)
+    if decode_images:
+        for index, message in enumerate(image_messages, start=1):
+            key = message_key(message)
+            raw = raw_info.get(key) or {}
+            image_md5 = extract_image_md5(raw)
+            rel = decode_image_asset(
+                media,
+                out_dir,
+                assets_dir,
+                attach_dir,
+                image_md5,
+                month_of(message["timestamp"]),
+                aes_key,
+                xor_key,
+                image_diagnostics,
+            )
+            if rel:
+                image_map[key] = rel
+            if index % 100 == 0:
+                print(
+                    f"decoded images: {index}/{len(image_messages)} usable={len(image_map)}",
+                    flush=True,
+                )
 
     by_month = collections.defaultdict(list)
     for message in messages:
@@ -358,9 +454,20 @@ def main():
         "months": {month: len(items) for month, items in sorted(by_month.items())},
         "image_messages": len(image_messages),
         "decoded_images": len(image_map),
+        "images_skipped": len(image_messages) if args.skip_images else 0,
         "image_diagnostics": dict(image_diagnostics),
         "output_dir": str(out_dir),
     }
+    for key in (
+        "archive_latest",
+        "session_latest_observed",
+        "requested_through",
+        "previous_cutoff",
+        "incremental_messages",
+        "excluded_after_cutoff",
+    ):
+        if data.get(key) is not None:
+            summary[key] = data[key]
     (out_dir / "归档说明.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

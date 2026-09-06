@@ -1,166 +1,145 @@
 ---
 name: nk-wechat-chat-archive
-description: 将微信 4.x Windows 聊天记录归档到 Obsidian Markdown。适用于用户要求“整理微信聊天记录”“微信群按月份归档”“微信聊天导出到本地知识库”“包含图片”“Weixin.exe / xwechat_files / 微信 4.x 数据库解密”“复用上次微信归档方案”等场景；支持在已完成数据库解密和聊天 JSON 导出后，把消息按月份生成 Markdown，并从本地 .dat 附件解密图片到 assets。
+description: 在 Windows 本机把微信 4.x 群聊或单聊整理成按月 Obsidian Markdown，可包含图片、增量续档、价值过滤和每日简报。适用于“归档微信聊天”“从上次截止时间继续整理”“微信群进入本地知识库”“过滤闲聊”“生成学习简报”等请求；既支持从已导出的聊天 JSON 开始，也支持为当前登录账号准备本地工具和数据库。
 ---
 
 # 微信聊天归档
 
-## 核心边界
+## 能力边界
 
-使用成熟工具负责脆弱环节：
+本技能支持 Windows 微信 4.x，处理用户本人已登录账号且保存在本机的数据。实时数据库读取依赖一个开源工具，技能内的脚本负责固定版本、串联流程、增量保护和验收：
 
-- 用 `wechat-decrypt` 扫描 Weixin.exe 内存、提取 per-DB key、解密 SQLCipher 4 数据库。
-- 用 `wechat-decrypt/export_chat.py` 或等价脚本导出目标聊天 JSON。
-- 用本技能的 `scripts/archive_wechat_v4_chat.py` 做最后一段确定性处理：聊天 JSON + 已解密 message DB + 本地附件目录 -> Obsidian 月度 Markdown + assets 图片。
+- `wechatauto-replica`：从正在运行的 `Weixin.exe` 读取并验证各数据库密钥。
+- 本技能：导出消息、解析本地 `.dat` 图片、日期截断、按月归档、增量合并、价值过滤、每日简报和一致性校验。
 
-不要把聊天内容、数据库、key 或图片上传到外部服务。不要把真实 key 写进长期文档或 skill。
+不承诺支持微信 3.x、macOS、移动端备份、企业微信或云端直接获取。微信升级后若内存结构改变，应先验证依赖工具兼容性，不能把“脚本启动”当作“数据已完整导出”。
 
-## 推荐目录
+聊天正文、数据库、账号标识、密钥和图片只在本机处理，不上传外部服务，不写入公开日志、长期文档或 Skill。只处理用户有权访问和归档的数据。
 
-在 vault 内使用临时工作区：
+## 选择入口
 
-```text
-.tmp/wechat-export/
-  tools/wechat-decrypt/
-  decrypted/
-  target-chat.json
-```
+按现有输入选择最短路径：
 
-正式归档输出建议：
+1. 只有聊天 JSON：运行归档脚本并加 `--skip-images`，先生成纯文本 Markdown。
+2. 已有本技能生成的聊天 JSON、图片密钥配置和微信附件目录：直接运行完整归档。
+3. 只有本机已登录的微信：按“首次准备”完成工具安装和聊天导出，再归档。
+4. 已有正式归档：读取 `归档说明.json`，按增量流程构建候选目录，验收后再替换正式目录。
+5. 只要精华和简报：对已有月度归档运行价值过滤脚本。
 
-```text
-10.Hermes协同/微信聊天归档/<群名或联系人名>/
-  2026-02.md
-  2026-03.md
-  assets/
-  归档说明.json
-```
+## 首次准备
 
-## 工作流
-
-1. 确认微信版本和数据目录。微信 4.x Windows 常见目录是 `xwechat_files/<wxid>_<suffix>/db_storage`，附件在同级 `msg/attach`。
-2. 克隆或复用 `wechat-decrypt`，配置 `config.json` 的 `db_dir`、`decrypted_dir`、`keys_file`。
-3. 在微信正在运行且目标账号已登录时提取 key，并执行数据库解密。
-4. 用聊天名、备注名、群名或 `@chatroom` 导出 JSON。
-5. 用本技能脚本生成 Obsidian 归档。
-6. 校验月份文件数、消息数、图片引用数和缺失图片数。
-7. 如需日常复用，继续用价值过滤脚本生成“精华归档”和“每日简报”，把闲聊、系统消息和低信息密度短句过滤掉。
-
-## Python 依赖
-
-归档脚本自身只依赖标准库；但读取微信压缩正文和解密 V2 图片时需要与 `wechat-decrypt` 相同的依赖：
+先阅读 [工具链说明](references/toolchain.md)，确认微信版本、数据目录和依赖边界。默认在知识库的 `.tmp/` 下建立私有临时目录：
 
 ```powershell
-python -m pip install -r ".tmp/wechat-export/tools/wechat-decrypt/requirements.txt"
+$root = ".tmp/wechat-chat-archive"
+python ".codex/skills/nk-wechat-chat-archive/scripts/bootstrap_wechat_archive_tools.py" `
+  --tools-dir "$root/tools" `
+  --install-deps
+$py = "$root/tools/.venv/Scripts/python.exe"
 ```
 
-最低检查：
+保持目标账号已登录，然后直接导出目标聊天。`--db-root` 指向包含账号目录的 `xwechat_files`，不是某个具体账号的 `db_storage`：
 
 ```powershell
-python -c "import Crypto, zstandard; print('deps ok')"
+& $py ".codex/skills/nk-wechat-chat-archive/scripts/export_wechat_chat.py" `
+  --wechatauto-repo "$root/tools/wechatauto-replica" `
+  --db-root "E:/path/to/xwechat_files" `
+  --workdir "$root/private-cache" `
+  --chat "<群名或联系人>" `
+  --output "$root/target-chat.json" `
+  --image-config "$root/private-cache/image-config.json" `
+  --through "2026-08-31"
 ```
 
-如果缺少 `Crypto`，V2 图片会无法解密；如果缺少 `zstandard`，部分压缩正文可能为空。
+如果有多个账号，显式增加 `--account "<账号目录名>"`。密钥缓存和 `image-config.json` 属于私有临时文件，禁止提交 Git。
 
-## 归档脚本
+## 导出与日期边界
 
-基本用法：
+首次按群名或备注导出；增量续档用 `--archive-summary` 代替 `--chat`，复用精确聊天 ID，并增加：
+
+```powershell
+  --archive-summary "<正式归档>/归档说明.json" `
+  --previous-cutoff "<上次精确截止时间>" `
+  --expected-previous-count <上次消息总数>
+```
+
+`--through YYYY-MM-DD` 包含该日 `23:59:59`，之后消息会明确排除。导出结果必须检查 `previous_count`、`incremental_count`、`latest_selected`、`excluded_after_cutoff` 和 `duplicates`。
+
+## 生成月度归档
+
+完整图片归档：
+
+```powershell
+& $py ".codex/skills/nk-wechat-chat-archive/scripts/archive_wechat_v4_chat.py" `
+  --chat-json "$root/target-chat.json" `
+  --wechat-base "E:/path/to/xwechat_files/<account>" `
+  --wechatauto-repo "$root/tools/wechatauto-replica" `
+  --image-config "$root/private-cache/image-config.json" `
+  --output "$root/generated"
+```
+
+只有聊天 JSON 时：
 
 ```powershell
 python ".codex/skills/nk-wechat-chat-archive/scripts/archive_wechat_v4_chat.py" `
-  --chat-json ".tmp/wechat-export/target-chat.json" `
-  --decrypted-dir ".tmp/wechat-export/decrypted" `
-  --wechat-base "E:/path/to/xwechat_files/<wxid>_<suffix>" `
-  --wechat-decrypt-tool ".tmp/wechat-export/tools/wechat-decrypt" `
-  --wechat-decrypt-config ".tmp/wechat-export/tools/wechat-decrypt/config.json" `
-  --output "10.Hermes协同/微信聊天归档/<聊天名>"
+  --chat-json "path/to/chat.json" `
+  --skip-images `
+  --output "path/to/archive"
 ```
 
-常用参数：
-
-- `--chat-json`：`export_chat.py` 生成的 JSON。
-- `--decrypted-dir`：已解密数据库根目录，内部应有 `message/message_0.db`。
-- `--wechat-base`：当前账号的 `xwechat_files/<wxid>_<suffix>` 目录。
-- `--wechat-decrypt-tool`：包含 `decode_image.py` 的 `wechat-decrypt` 目录。
-- `--wechat-decrypt-config`：读取 `image_aes_key` 和 `image_xor_key`。
-- `--image-aes-key`、`--image-xor-key`：只在临时命令中覆盖，不要写入文档。
-- `--output`：归档输出目录。
+输出包含 `YYYY-MM.md`、`assets/YYYY-MM/` 和 `归档说明.json`。正式归档建议保存到 `<知识库>/微信聊天归档/<聊天名>/`，但不要假定用户一定使用 Obsidian 或固定目录。
 
 ## 价值过滤与每日简报
 
-当完整归档已经生成后，可以继续把月度聊天记录转成更适合复盘的“价值过滤”版本：
+根据群类型选择 `learning`、`project`、`customer`、`activity` 或 `general`：
 
 ```powershell
-python ".codex/skills/nk-wechat-chat-archive/scripts/filter_wechat_archive.py" `
-  --archive-dir "10.Hermes协同/微信聊天归档/<聊天名>" `
+& $py ".codex/skills/nk-wechat-chat-archive/scripts/filter_wechat_archive.py" `
+  --archive-dir "$root/generated" `
   --profile learning `
   --daily-digest
 ```
 
-输出结构：
+领域术语差异较大时增加 `--keywords-file path/to/keywords.json`。文件格式和调参方法见 [工具链说明](references/toolchain.md)。规则过滤是可解释的初筛，不应声称等同于人工判断或大模型语义理解。
 
-```text
-10.Hermes协同/微信聊天归档/<聊天名>/
-  价值过滤/
-    2026-02-价值.md
-    2026-03-价值.md
-    每日简报/
-      2026-02-18.md
-      2026-02-19.md
-    价值过滤说明.json
-```
+## 增量续档
 
-过滤逻辑：
+增量任务必须先阅读 [增量归档流程](references/incremental-workflow.md)。核心原则：
 
-- 自动跳过系统消息、撤回提示、寒暄、纯表情、短确认、低信息密度闲聊。
-- 优先保留关键问答、工具资源、案例实操、方法总结、行动跟进。
-- 图片不会盲目全留；只有自身命中价值规则，或靠近高价值消息时，才会作为上下文保留。
-- 输出文件会重写图片相对路径，继续引用原归档中的 `assets/` 图片，不复制图片。
-- `--profile` 用于调整关注点：`learning` 适合学习群，`project` 适合项目群，`customer` 适合客户群，`activity` 适合行程/活动群，`general` 使用通用规则。
+- 正式目录只读，先完整导出到临时候选目录。
+- 用上次精确时间和消息数验证旧区间没有漂移。
+- 未变化月份保持文件哈希不变；发生追加的旧月份保留原正文，只追加截止时间之后的消息。
+- 先复制并复用历史图片，再补解新图片。
+- 验收通过后备份并精确替换，禁止直接覆盖未验证的正式归档。
 
-常用参数：
+## 验收
 
-- `--min-score`：保留阈值，默认 `4`。数值越高，过滤越严格。
-- `--context-window`：给高价值消息保留前后上下文，默认 `0`。
-- `--image-context-window`：图片邻近高价值消息时保留，默认前后 `2` 条。
-- `--daily-digest`：生成每日简报。
-- `--daily-limit`：每日简报摘录条数，默认 `12`。
-
-## 图片处理规则
-
-脚本会：
-
-- 用聊天 username 计算 `md5(username)`，定位 `msg/attach/<chat_hash>/<YYYY-MM>/Img/`。
-- 从图片消息的 `packed_info_data` 或 XML 中提取 32 位 md5。
-- 优先选择 `_h`、其次 `_W`、再 `_t` 的 `.dat` 文件。
-- 调用 `decode_image.decrypt_dat_file()` 解密，写入 `assets/<YYYY-MM>/<md5>.<ext>`。
-- Markdown 中使用相对路径引用图片。
-
-如果图片缺失，先让用户在微信里打开对应图片，使本地缓存落盘，再重跑归档脚本。
-
-## 验收命令
+先运行技能测试和结构校验：
 
 ```powershell
-$out = "10.Hermes协同/微信聊天归档/<聊天名>"
-Get-Content "$out/归档说明.json" -Raw
-rg -n "!\[\]\(" "$out"
-rg -n "图片未能解密|缺失|failed" "$out"
-Get-Content "$out/价值过滤/价值过滤说明.json" -Raw
+python -m unittest discover `
+  -s ".codex/skills/nk-wechat-chat-archive/tests" `
+  -p "test_*.py" -v
 ```
 
-合格标准：
+再验证实际归档：
 
-- `归档说明.json` 中 `messages` 与导出 JSON 消息数一致。
-- 月度文件覆盖目标时间范围。
-- `image_messages` 与 Markdown 图片引用数一致，或能解释未解密原因。
-- `image_diagnostics` 为空或只有可解释项；若出现 `missing_module:Crypto`，先安装 `pycryptodome`。
-- Markdown 图片引用的本地文件全部存在。
-- 价值过滤输出中 `kept_messages` 明显小于 `source_messages`，且 `每日简报/` 能按天生成可浏览文件。
+```powershell
+& $py ".codex/skills/nk-wechat-chat-archive/scripts/validate_wechat_archive.py" `
+  --archive "<候选归档>" `
+  --expected-messages <消息总数> `
+  --expected-images <图片消息数> `
+  --expected-latest "<归档最后时间>" `
+  --expected-requested-through "<YYYY-MM-DD>"
+```
 
-## 常见失败判断
+增量任务还应提供历史基线、变化月份和禁入月份。只有校验输出 `"passed": true`，且人工抽查首条、末条、月份边界和若干图片可打开，才可报告完成。
 
-- `pywxdump` 无法读取：优先判断是否为微信 4.x / `Weixin.exe` / `xwechat_files`，不要继续套旧版方案。
-- SQLite 直接打开失败：数据库仍是 SQLCipher/WCDB 加密状态，先解密。
-- 找不到群：先用联系人库解析群名到 `@chatroom`，再用 `md5(username)` 找消息表。
-- 解不出 V2 图片：检查 `config.json` 是否有 `image_aes_key` 和 `image_xor_key`，以及本地是否已有足够 `.dat` 缓存。
-- 时间戳异常：确认导出 JSON 使用本机本地时间语义；月度分组以 `create_time` 为准。
+## 常见失败
+
+- 找不到数据目录：按 [工具链说明](references/toolchain.md) 检查微信配置和 `xwechat_files`。
+- 无法提取密钥：确认 Windows 微信 4.x 正在运行且账号已登录；若微信刚升级，先核对依赖兼容性。
+- 找不到群：先确认群聊已在当前本地数据库中出现；增量任务使用旧归档中的精确 ID。
+- 图片缺失：在微信中打开对应图片使缓存落盘，再重跑候选归档。
+- 同一 `local_id` 重复：必须以 `source_db + local_id` 识别消息，不能跨分片只按 `local_id` 去重。
+- 正式归档与候选统计不一致：停止替换，保留现有归档并检查导出边界。

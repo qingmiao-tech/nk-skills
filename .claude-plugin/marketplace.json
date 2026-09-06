@@ -4,13 +4,13 @@
     "name": "Qingmiao Tech"
   },
   "metadata": {
-    "description": "NK skills for WeChat chat archiving, Official Account publish workflows, and session distillation",
-    "version": "0.4.0"
+    "description": "NK skills for local WeChat chat archiving, Official Account publish workflows, and session distillation",
+    "version": "0.5.0"
   },
   "plugins": [
     {
       "name": "nk-skills",
-      "description": "WeChat archive, Official Account publish workflow, and session distillation skills",
+      "description": "Local WeChat archive, Official Account publish workflow, and session distillation skills",
       "source": "./",
       "strict": false,
       "skills": [

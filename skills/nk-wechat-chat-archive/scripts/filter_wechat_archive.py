@@ -118,6 +118,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-context-minutes", type=int, default=8, help="Max minutes for image context rescue.")
     parser.add_argument("--daily-digest", action="store_true", help="Write per-day digest files.")
     parser.add_argument("--daily-limit", type=int, default=12, help="Max messages in each daily digest.")
+    parser.add_argument(
+        "--keywords-file",
+        help="Optional UTF-8 JSON object that appends domain keywords by category.",
+    )
     return parser.parse_args()
 
 
@@ -225,14 +229,46 @@ def is_noise(message: Message) -> bool:
     return False
 
 
-def merged_keywords(profile: str) -> dict[str, list[str]]:
+def load_custom_keywords(path: str | None) -> dict[str, list[str]]:
+    if not path:
+        return {}
+    source = Path(path)
+    data = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("keywords file must be a JSON object")
+
+    allowed = set(BASE_KEYWORDS)
+    result: dict[str, list[str]] = {}
+    for category, words in data.items():
+        if category not in allowed:
+            raise ValueError(
+                f"unsupported keyword category: {category}; allowed: {', '.join(sorted(allowed))}"
+            )
+        if not isinstance(words, list) or not all(isinstance(word, str) for word in words):
+            raise ValueError(f"keywords for {category} must be a JSON string array")
+        result[category] = ordered_unique(word.strip() for word in words if word.strip())
+    return result
+
+
+def merged_keywords(
+    profile: str,
+    custom_keywords: dict[str, list[str]] | None = None,
+) -> dict[str, list[str]]:
     merged = {category: list(words) for category, words in BASE_KEYWORDS.items()}
     for category, words in PROFILE_KEYWORDS.get(profile, {}).items():
         merged.setdefault(category, []).extend(words)
+    for category, words in (custom_keywords or {}).items():
+        merged.setdefault(category, []).extend(words)
+    for category, words in merged.items():
+        merged[category] = ordered_unique(words)
     return merged
 
 
-def score_message(message: Message, profile: str) -> None:
+def score_message(
+    message: Message,
+    profile: str,
+    custom_keywords: dict[str, list[str]] | None = None,
+) -> None:
     message.noise = is_noise(message)
     if message.noise:
         message.score = -10
@@ -245,7 +281,7 @@ def score_message(message: Message, profile: str) -> None:
     score = 0
     categories: list[str] = []
     reasons: list[str] = []
-    keywords = merged_keywords(profile)
+    keywords = merged_keywords(profile, custom_keywords)
 
     if message.kind == "image":
         score += 1
@@ -288,7 +324,7 @@ def score_message(message: Message, profile: str) -> None:
     message.reasons = ordered_unique(reasons)
 
 
-def ordered_unique(items: list[str]) -> list[str]:
+def ordered_unique(items) -> list[str]:
     result = []
     seen = set()
     for item in items:
@@ -299,8 +335,9 @@ def ordered_unique(items: list[str]) -> list[str]:
 
 
 def select_messages(messages: list[Message], args: argparse.Namespace) -> None:
+    custom_keywords = load_custom_keywords(getattr(args, "keywords_file", None))
     for message in messages:
-        score_message(message, args.profile)
+        score_message(message, args.profile, custom_keywords)
         message.selected = message.score >= args.min_score
 
     selected_indices = {index for index, message in enumerate(messages) if message.selected}
@@ -522,6 +559,7 @@ def main() -> int:
     summary = {
         "chat": detected_chat_name,
         "profile": args.profile,
+        "keywords_file": str(Path(args.keywords_file).resolve()) if args.keywords_file else None,
         "archive_dir": str(archive_dir),
         "output_dir": str(output_dir),
         "source_messages": len(all_messages),
